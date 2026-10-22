@@ -28,6 +28,10 @@ COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1
 
+# Pre-download the default faster-whisper small.en model at Docker build time
+# This avoids Render download timeouts and keeps startup fast
+RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('small.en', device='cpu', compute_type='int8')"
+
 # Copy backend application source
 COPY . .
 
