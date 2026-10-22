@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+backend/.venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Environment and sensitive keys (NEVER COMMIT REAL SECRETS)
+backend/.env
+backend/.env.*
+!backend/.env.example
+.env
+.env.*
+.env.local
+.env.production
+.env.development
+!*.example
+
+# Build artifacts & caches
+dist/
+build/
+*.egg-info/
+.vercel/
+.turbo/
+
+# Audio / Models / Temporary / Logs
+*.log
+*.wav
+*.mp3
+*.pcm
+*.ogg
+*.flac
+*.m4a
+models/
+huggingface/
+.cache/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~

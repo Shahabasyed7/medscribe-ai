@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MedScribe AI — AI-Powered Clinical Documentation</title>
+    <meta name="description" content="Real-time clinical consultation speech-to-text and AI-powered clinical documentation." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="brand-section">
+        <div class="brand-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">MedScribe AI</h1>
+          <p class="brand-subtitle">AI-Powered Clinical Documentation</p>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <div id="system-status-badge" class="status-badge idle">
+          <span class="status-dot"></span>
+          <span id="system-status-text">Idle</span>
+        </div>
+
+        <button id="settings-btn" class="help-button" aria-label="API Key Settings" title="Configure API Key" style="margin-right: 6px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+
+        <button id="help-btn" class="help-button" aria-label="Clinical Safety & Information" title="Clinical Guidance & Privacy Notice">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="app-main">
+      <!-- Error / Alert Banner -->
+      <div id="alert-banner" class="alert-banner" style="display: none;" role="alert">
+        <span id="alert-message">Error message</span>
+        <button id="alert-dismiss-btn" class="alert-dismiss" aria-label="Dismiss error">&times;</button>
+      </div>
+
+      <!-- Two-Panel Dashboard Grid -->
+      <div class="dashboard-grid">
+        <!-- LEFT PANEL: Live Medical Transcription -->
+        <section class="med-card" id="left-transcription-card" aria-labelledby="transcription-heading">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-icon-badge" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="22"></line>
+                </svg>
+              </div>
+              <h2 id="transcription-heading" class="card-title">Live Medical Transcription</h2>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <!-- VAD & Meta Bar -->
+            <div class="vad-meta-bar">
+              <div id="speaking-indicator" class="speaking-indicator" aria-live="polite">
+                <div class="speaking-wave">
+                  <span></span><span></span><span></span><span></span>
+                </div>
+                <span id="speaking-text">Waiting for audio...</span>
+              </div>
+
+              <!-- Speaker Role Selector Toggle -->
+              <div class="speaker-toggle-group" role="radiogroup" aria-label="Current Speaker Role">
+                <button type="button" id="speaker-doctor-btn" class="speaker-toggle-btn active" role="radio" aria-checked="true" title="Tag next speech as Doctor">
+                  <span class="speaker-dot doctor-dot"></span>
+                  <span>Doctor</span>
+                </button>
+                <button type="button" id="speaker-patient-btn" class="speaker-toggle-btn" role="radio" aria-checked="false" title="Tag next speech as Patient">
+                  <span class="speaker-dot patient-dot"></span>
+                  <span>Patient</span>
+                </button>
+              </div>
+
+              <div class="counters-group">
+                <span>Words: <strong id="word-count" class="counter-badge">0</strong></span>
+                <span>Segments: <strong id="chunk-count" class="counter-badge">0</strong></span>
+              </div>
+            </div>
+
+            <!-- Scrollable Live Transcript Container -->
+            <div id="transcript-container" class="transcript-box" role="region" aria-label="Live Transcript" tabindex="0">
+              <div id="transcript-placeholder" class="transcript-placeholder">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                </svg>
+                <p>Click <strong>Start Mic</strong> to begin real-time consultation transcription.<br/>Speech activity is filtered by WebRTC VAD and transcribed with Faster-Whisper.</p>
+              </div>
+              <div id="transcript-content" style="display: none;"></div>
+            </div>
+
+            <!-- Control Buttons Row -->
+            <div class="controls-row">
+              <button id="start-mic-btn" class="btn btn-primary" aria-label="Start recording microphone">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <span>Start Mic</span>
+              </button>
+
+              <button id="stop-mic-btn" class="btn btn-danger" disabled aria-label="Stop recording microphone">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                </svg>
+                <span>Stop</span>
+              </button>
+
+              <button id="clear-transcript-btn" class="btn btn-secondary" aria-label="Clear consultation transcript">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 6h18"></path>
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                </svg>
+                <span>Clear</span>
+              </button>
+
+              <button id="save-wav-btn" class="btn btn-secondary" disabled aria-label="Save recording as WAV file">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Save Recording</span>
+              </button>
+            </div>
+
+            <!-- Primary Process Button -->
+            <button id="process-ai-btn" class="btn btn-action-primary" disabled aria-label="Process transcript with AI to generate clinical summary">
+              <span id="process-spinner" class="spinner" style="display: none;"></span>
+              <svg id="process-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"></path>
+              </svg>
+              <span id="process-btn-text">Process Transcript with AI</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- RIGHT PANEL: AI Medical Summary -->
+        <section class="med-card" id="right-summary-card" aria-labelledby="summary-heading">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-icon-badge" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="16" y1="13" x2="8" y2="13"></line>
+                  <line x1="16" y1="17" x2="8" y2="17"></line>
+                  <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
+              </div>
+              <h2 id="summary-heading" class="card-title">AI Medical Summary</h2>
+            </div>
+
+            <button id="clear-summary-btn" class="btn btn-secondary btn-sm" aria-label="Clear clinical summary">
+              <span>Clear</span>
+            </button>
+          </div>
+
+          <div class="card-body">
+            <!-- Empty state placeholder -->
+            <div id="summary-placeholder" class="summary-placeholder">
+              <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="12" y1="18" x2="12" y2="12"></line>
+                <line x1="9" y1="15" x2="15" y2="15"></line>
+              </svg>
+              <p>Record a consultation or provide a transcript, then click<br/><strong>Process Transcript with AI</strong> to extract the structured clinical summary.</p>
+            </div>
+
+            <!-- Structured Summary Content Container -->
+            <div id="summary-content" class="summary-container" style="display: none;">
+              <!-- Patient Details -->
+              <div class="clinical-section">
+                <div class="clinical-section-title">Patient Details</div>
+                <div class="patient-grid">
+                  <div class="patient-meta-item">
+                    <div class="patient-meta-label">Name</div>
+                    <div id="summary-patient-name" class="patient-meta-value">—</div>
+                  </div>
+                  <div class="patient-meta-item">
+                    <div class="patient-meta-label">Age / Sex</div>
+                    <div id="summary-patient-age-sex" class="patient-meta-value">—</div>
+                  </div>
+                  <div class="patient-meta-item">
+                    <div class="patient-meta-label">Identifier</div>
+                    <div id="summary-patient-id" class="patient-meta-value">—</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Editable Clinical Summary -->
+              <div class="clinical-section">
+                <div class="clinical-section-title">Clinical Summary (Editable)</div>
+                <textarea id="summary-narrative-input" class="editable-summary-textarea" aria-label="Clinical Summary Narrative" rows="3"></textarea>
+              </div>
+
+              <!-- Chief Complaint -->
+              <div class="clinical-section">
+                <div class="clinical-section-title">Chief Complaint</div>
+                <div id="summary-chief-complaint" class="pill-list"></div>
+              </div>
+
+              <!-- History of Present Illness -->
+              <div class="clinical-section">
+                <div class="clinical-section-title">History of Present Illness</div>
+                <div id="summary-hpi-content" class="bullet-list"></div>
+              </div>
+
+              <!-- Symptoms (Positive & Negative Separated) -->
+              <div class="clinical-section">
+                <div class="clinical-section-title">Reported & Denied Symptoms</div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <div>
+                    <span style="font-size: 0.75rem; font-weight: 600; color: #166534;">Positive Symptoms (Reported):</span>
+                    <div id="summary-positive-symptoms" class="pill-list" style="margin-top: 4px;"></div>
+                  </div>
+                  <div>
+                    <span style="font-size: 0.75rem; font-weight: 600; color: #991b1b;">Negative Symptoms (Denied):</span>
+                    <div id="summary-negative-symptoms" class="pill-list" style="margin-top: 4px;"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Past Medical History -->
+              <div class="clinical-section">
+                <div class="clinical-section-title">Past Medical History</div>
+                <div id="summary-pmh-content" class="bullet-list"></div>
+              </div>
+
+              <!-- Medications & Adherence -->
+              <div class="clinical-section">
+                <div class="clinical-section-title">Medication History & Adherence</div>
+                <div id="summary-medications-list"></div>
+              </div>
+
+              <!-- Allergies -->
+              <div class="clinical-section">
+                <div class="clinical-section-title">Allergies</div>
+                <div id="summary-allergies-list" class="pill-list"></div>
+              </div>
+
+              <!-- Clinical Observations & Vitals -->
+              <div class="clinical-section">
+                <div class="clinical-section-title">Clinical Observations & Vitals</div>
+                <div id="summary-vitals-grid" class="vitals-grid" style="margin-bottom: 8px;"></div>
+                <div id="summary-exam-findings" class="bullet-list"></div>
+              </div>
+
+              <!-- Assessment -->
+              <div class="clinical-section">
+                <div class="clinical-section-title">Assessment / Diagnostic Impression</div>
+                <div id="summary-assessment-list" class="bullet-list"></div>
+              </div>
+
+              <!-- Plan -->
+              <div class="clinical-section">
+                <div class="clinical-section-title">Plan & Management</div>
+                <div id="summary-plan-content" class="bullet-list"></div>
+              </div>
+
+              <!-- Copy to Prescription Action Button -->
+              <button id="copy-prescription-btn" class="btn btn-action-primary" aria-label="Copy clinician-verified summary to prescription">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                <span>Copy to Prescription</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- Settings Modal (API Key Configuration) -->
+    <div id="settings-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="modal-dialog">
+        <h3 id="settings-title" class="modal-title">API Key Configuration</h3>
+        <div class="modal-content">
+          <p style="margin-bottom: 12px; font-size: 0.9rem; color: #475569;">Configure your AI API key to enable clinical summary generation from transcripts.</p>
+
+          <div style="margin-bottom: 14px;">
+            <label for="settings-provider" style="display: block; font-size: 0.82rem; font-weight: 600; color: #475569; margin-bottom: 6px;">LLM Provider</label>
+            <select id="settings-provider" style="width: 100%; padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; background: #f8fafc; color: #1e293b; outline: none;">
+              <option value="gemini">Google Gemini (gemini-3.5-flash-lite) — Recommended</option>
+              <option value="openai">OpenAI (gpt-4o-mini)</option>
+            </select>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label for="settings-api-key" style="display: block; font-size: 0.82rem; font-weight: 600; color: #475569; margin-bottom: 6px;">API Key</label>
+            <input type="password" id="settings-api-key" placeholder="Paste your API key here..." autocomplete="off" style="width: 100%; padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; background: #f8fafc; color: #1e293b; outline: none; font-family: monospace;" />
+            <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 5px;">Key is stored in backend/.env and reloaded on each analysis request. Never logged or transmitted elsewhere.</p>
+          </div>
+
+          <div id="settings-status" style="display: none; padding: 8px 12px; border-radius: 8px; font-size: 0.83rem; margin-bottom: 4px;"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="close-settings-btn" class="btn btn-secondary btn-sm">Cancel</button>
+          <button id="save-settings-btn" class="btn btn-primary btn-sm">Save &amp; Apply</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Help / Clinical Safety Modal -->
+    <div id="help-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="help-title">
+      <div class="modal-dialog">
+        <h3 id="help-title" class="modal-title">Clinical Guidance & Safety Notice</h3>
+        <div class="modal-content">
+          <p style="margin-bottom: 8px;"><strong>MedScribe AI</strong> utilizes real-time WebRTC Voice Activity Detection and Faster-Whisper ASR to transcribe doctor-patient consultations, followed by structured clinical summarization.</p>
+          <ul style="padding-left: 20px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px;">
+            <li><strong>Clinician Verification:</strong> AI summaries are documentation aids only and must be thoroughly reviewed and verified by a licensed clinician before inclusion in medical records.</li>
+            <li><strong>Zero Hallucination:</strong> Absent information defaults to null or empty collections rather than invented clinical facts.</li>
+            <li><strong>Audio Security:</strong> Audio is processed in memory during the consultation and never written to permanent disk storage unless explicitly exported via "Save Recording".</li>
+          </ul>
+        </div>
+        <div class="modal-actions">
+          <button id="close-help-btn" class="btn btn-primary btn-sm">Understood</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification container -->
+    <div id="toast-container" style="display: none;"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

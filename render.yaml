@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: medscribe-backend
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: starter
+    region: oregon
+    envVars:
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: WHISPER_MODEL
+        value: small.en
+      - key: WHISPER_DEVICE
+        value: cpu
+      - key: WHISPER_COMPUTE_TYPE
+        value: int8
+      - key: ALLOWED_ORIGIN_REGEX
+        value: "https://.*\\.vercel\\.app"
