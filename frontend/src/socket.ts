@@ -63,6 +63,8 @@ export class AudioWebSocket {
           this.isConnecting = false;
           console.error('WebSocket connection error:', err);
           store.setError('WebSocket error connecting to transcription server.');
+          store.setSpeaking(false);
+          store.setProvisionalText('');
           if (this.callbacks.onError) {
             this.callbacks.onError('WebSocket connection error');
           }
@@ -72,6 +74,7 @@ export class AudioWebSocket {
         this.ws.onclose = () => {
           this.isConnecting = false;
           store.setSpeaking(false);
+          store.setProvisionalText('');
           this.ws = null;
         };
       } catch (err) {
@@ -87,8 +90,6 @@ export class AudioWebSocket {
         store.setSpeaking(msg.speaking);
         if (msg.speaking) {
           store.setProvisionalText('Listening and transcribing speech...');
-        } else {
-          store.setProvisionalText('');
         }
         if (this.callbacks.onVad) this.callbacks.onVad(msg.speaking);
         break;
@@ -100,6 +101,7 @@ export class AudioWebSocket {
 
       case 'done':
         store.setSpeaking(false);
+        store.setProvisionalText('');
         if (this.callbacks.onDone) this.callbacks.onDone();
         break;
 

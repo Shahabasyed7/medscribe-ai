@@ -58,9 +58,8 @@ class StateStore {
 
   setSpeaking(isSpeaking: boolean): void {
     if (this.state.isSpeaking !== isSpeaking) {
-      // When speech stops, if we had provisional text, clear it as the segment closes
-      const provisionalText = isSpeaking ? this.state.provisionalText : '';
-      this.state = { ...this.state, isSpeaking, provisionalText };
+      // Retain provisionalText so UI indicates Whisper is transcribing until segment chunk arrives or session ends
+      this.state = { ...this.state, isSpeaking };
       this.notify();
     }
   }

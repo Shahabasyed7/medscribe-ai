@@ -186,7 +186,8 @@ function renderTranscriptionCard(state: AppState): void {
   }
 
   if (stopBtn) {
-    stopBtn.disabled = state.status !== 'recording';
+    const isFinalizing = state.provisionalText === 'Finalizing speech transcription...';
+    stopBtn.disabled = state.status !== 'recording' || isFinalizing;
   }
 
   if (clearBtn) {

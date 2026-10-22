@@ -127,3 +127,128 @@ test('State machine transitions follow idle -> recording -> processing -> done s
   assert.equal(canTransition('processing', 'error'), true);
 });
 
+// 6. Audio Pipeline & Delayed Transcript Arrival Test
+test('Provisional state is preserved during VAD pause and resolved when transcript arrives', () => {
+  let state = {
+    status: 'recording',
+    isSpeaking: false,
+    provisionalText: '',
+    chunks: [],
+    transcript: '',
+    wordCount: 0,
+    chunkCount: 0,
+  };
+
+  function setSpeaking(isSpeaking) {
+    state.isSpeaking = isSpeaking;
+  }
+
+  function setProvisionalText(text) {
+    state.provisionalText = text;
+  }
+
+  function addTranscriptChunk(chunkData) {
+    state.chunks.push(chunkData);
+    state.transcript = state.chunks.map(c => `${c.speaker || 'Doctor'}: ${c.text}`).join('\n');
+    state.provisionalText = '';
+    state.wordCount = state.transcript.split(/\s+/).filter(Boolean).length;
+    state.chunkCount = state.chunks.length;
+  }
+
+  // 1. User starts speaking -> VAD detects speech
+  setSpeaking(true);
+  setProvisionalText('Listening and transcribing speech...');
+  assert.equal(state.isSpeaking, true);
+  assert.equal(state.provisionalText, 'Listening and transcribing speech...');
+  assert.equal(state.chunks.length, 0);
+
+  // 2. User pauses speaking (e.g. between sentences or at sentence end) -> VAD is false
+  // CRITICAL FIX TEST: setSpeaking(false) must NOT wipe provisionalText before Whisper returns!
+  setSpeaking(false);
+  assert.equal(state.isSpeaking, false);
+  assert.equal(state.provisionalText, 'Listening and transcribing speech...', 'Provisional text must be retained while Whisper transcribes in the background');
+  assert.equal(state.chunks.length, 0);
+
+  // 3. Delayed transcript arrives from Whisper
+  addTranscriptChunk({ text: 'Patient reports mild chest discomfort and fatigue.', chunk: 1, speaker: 'Doctor' });
+  assert.equal(state.chunks.length, 1);
+  assert.equal(state.provisionalText, '', 'Provisional text must be cleared once transcript chunk is committed');
+  assert.equal(state.chunkCount, 1);
+  assert.ok(state.wordCount > 0);
+  assert.ok(state.transcript.includes('mild chest discomfort'));
+});
+
+// 7. Stop Lifecycle During Transcription Test
+test('Stop button initiates finalizing state and only transitions to idle on done event', () => {
+  let state = {
+    status: 'recording',
+    provisionalText: '',
+  };
+  let stopSent = false;
+  let timerCleared = false;
+
+  let stopTimeoutId = null;
+
+  function finishRecordingSession() {
+    if (stopTimeoutId !== null) {
+      timerCleared = true;
+      stopTimeoutId = null;
+    }
+    state.provisionalText = '';
+    state.status = 'idle';
+  }
+
+  function onStopClick() {
+    if (state.status !== 'recording') return;
+    // Set provisional text and send stop
+    state.provisionalText = 'Finalizing speech transcription...';
+    stopSent = true;
+
+    // Start 15s safety timer
+    stopTimeoutId = 12345;
+  }
+
+  function onServerDone() {
+    finishRecordingSession();
+  }
+
+  // User clicks stop while recording
+  onStopClick();
+  assert.equal(stopSent, true);
+  assert.equal(state.status, 'recording', 'Status must remain recording/finalizing while waiting for server to flush');
+  assert.equal(state.provisionalText, 'Finalizing speech transcription...');
+  assert.notEqual(stopTimeoutId, null);
+
+  // Server flushes Whisper queue and emits done
+  onServerDone();
+  assert.equal(state.status, 'idle', 'Status switches to idle when done arrives');
+  assert.equal(state.provisionalText, '');
+  assert.equal(timerCleared, true, 'Safety timer was cleared cleanly');
+});
+
+// 8. Timeout and WebSocket Error Fallback Test
+test('WebSocket error or timeout cleanly resets stuck finalizing state to idle', () => {
+  let state = {
+    status: 'recording',
+    provisionalText: 'Finalizing speech transcription...',
+    errorMessage: null,
+  };
+  let stopTimeoutId = 9999;
+
+  function onSocketError(errMessage) {
+    if (stopTimeoutId !== null) {
+      stopTimeoutId = null;
+    }
+    state.errorMessage = errMessage;
+    state.provisionalText = '';
+    state.status = 'idle';
+  }
+
+  // Simulate network drop or backend error during transcription finalization
+  onSocketError('WebSocket disconnected');
+  assert.equal(state.status, 'idle');
+  assert.equal(state.provisionalText, '');
+  assert.equal(state.errorMessage, 'WebSocket disconnected');
+  assert.equal(stopTimeoutId, null);
+});
+

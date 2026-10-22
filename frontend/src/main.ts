@@ -13,6 +13,17 @@ import { ApiService } from './api';
 // Initialize audio and socket managers
 let audioManager: AudioManager;
 let socketManager: AudioWebSocket;
+let stopTimeoutId: number | null = null;
+
+function finishRecordingSession(): void {
+  if (stopTimeoutId !== null) {
+    window.clearTimeout(stopTimeoutId);
+    stopTimeoutId = null;
+  }
+  store.setProvisionalText('');
+  store.setStatus('idle');
+  showToast('Recording stopped. Speech finalized.');
+}
 
 function initApp(): void {
   // Connect store to renderer
@@ -23,12 +34,16 @@ function initApp(): void {
   // Setup WebSocket manager
   socketManager = new AudioWebSocket({
     onDone: () => {
-      if (store.getState().status === 'recording') {
-        store.setStatus('idle');
-      }
+      finishRecordingSession();
     },
     onError: (err) => {
       console.error('Socket error event:', err);
+      if (stopTimeoutId !== null) {
+        window.clearTimeout(stopTimeoutId);
+        stopTimeoutId = null;
+      }
+      store.setProvisionalText('');
+      store.setStatus('idle');
     },
   });
 
@@ -81,7 +96,12 @@ function attachEventListeners(): void {
     if (currentState.status === 'recording' || currentState.status === 'processing') return;
 
     try {
+      if (stopTimeoutId !== null) {
+        window.clearTimeout(stopTimeoutId);
+        stopTimeoutId = null;
+      }
       store.setError(null);
+      store.setProvisionalText('');
       // Connect WebSocket first
       await socketManager.connect();
       // Start microphone recording
@@ -101,10 +121,25 @@ function attachEventListeners(): void {
   stopBtn?.addEventListener('click', () => {
     if (store.getState().status !== 'recording') return;
 
+    // Immediately stop microphone capture so no new audio is recorded
     audioManager.stop();
-    socketManager.sendStop();
-    store.setStatus('idle');
-    showToast('Recording stopped. Speech finalized.');
+
+    if (socketManager && socketManager.isOpen()) {
+      // Indicate to user that final audio segments are being transcribed
+      store.setProvisionalText('Finalizing speech transcription...');
+      socketManager.sendStop();
+
+      // Start safety timeout fallback: if backend done message does not arrive in 15s, transition to idle
+      if (stopTimeoutId !== null) {
+        window.clearTimeout(stopTimeoutId);
+      }
+      stopTimeoutId = window.setTimeout(() => {
+        console.warn('Backend finalization timed out. Forcing idle status.');
+        finishRecordingSession();
+      }, 15000);
+    } else {
+      finishRecordingSession();
+    }
   });
 
   // 3. Clear Transcript
