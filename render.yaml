@@ -14,7 +14,7 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: WHISPER_MODEL
-        value: small.en
+        value: base.en
       - key: WHISPER_DEVICE
         value: cpu
       - key: WHISPER_COMPUTE_TYPE

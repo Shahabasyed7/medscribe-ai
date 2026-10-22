@@ -28,9 +28,13 @@ COPY --from=builder /root/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1
 
-# Pre-download the default faster-whisper small.en model at Docker build time
-# This avoids Render download timeouts and keeps startup fast
-RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('small.en', device='cpu', compute_type='int8')"
+# Configurable Whisper model with base.en default for low-memory environments (Render Free tier)
+ARG WHISPER_MODEL=base.en
+ENV WHISPER_MODEL=${WHISPER_MODEL}
+
+# Pre-download the configured faster-whisper model at Docker build time
+# This avoids download timeouts and keeps startup memory & time low
+RUN python3 -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.getenv('WHISPER_MODEL', 'base.en'), device='cpu', compute_type='int8')"
 
 # Copy backend application source
 COPY . .
@@ -41,5 +45,5 @@ ENV PORT=8000
 
 EXPOSE 8000
 
-# Start Uvicorn bound to 0.0.0.0 and dynamic PORT
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Start Uvicorn bound to 0.0.0.0 and dynamic PORT with exactly 1 worker to keep RAM under 512MB
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
