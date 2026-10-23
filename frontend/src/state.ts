@@ -9,6 +9,9 @@ const initialState: AppState = {
   isSpeaking: false,
   activeSpeaker: 'Doctor',
   provisionalText: '',
+  livePreviewText: '',
+  isTranscribing: false,
+  pendingCount: 0,
   transcript: '',
   chunks: [],
   wordCount: 0,
@@ -78,6 +81,20 @@ class StateStore {
     }
   }
 
+  setLivePreviewText(text: string): void {
+    if (this.state.livePreviewText !== text) {
+      this.state = { ...this.state, livePreviewText: text };
+      this.notify();
+    }
+  }
+
+  setTranscribingStatus(isTranscribing: boolean, pendingCount: number): void {
+    if (this.state.isTranscribing !== isTranscribing || this.state.pendingCount !== pendingCount) {
+      this.state = { ...this.state, isTranscribing, pendingCount };
+      this.notify();
+    }
+  }
+
   addTranscriptChunk(chunkData: { text: string; chunk: number; speaker?: SpeakerRole }): void {
     const cleanText = chunkData.text.trim();
     if (!cleanText) return;
@@ -96,11 +113,27 @@ class StateStore {
     const newTranscript = newChunks.map((c) => `${c.speaker}: ${c.text}`).join('\n');
     const wordCount = newChunks.map((c) => c.text).join(' ').split(/\s+/).filter(Boolean).length;
 
+    // When Whisper finalizes a chunk, remove the matching preview words from livePreviewText
+    let updatedPreview = this.state.livePreviewText;
+    if (updatedPreview) {
+      const normChunk = cleanText.toLowerCase().replace(/[^\w\s]/g, '').trim();
+      const normPreview = updatedPreview.toLowerCase().replace(/[^\w\s]/g, '').trim();
+
+      if (normPreview === normChunk || normPreview.startsWith(normChunk)) {
+        // Slice away the finalized portion
+        const remaining = normPreview.slice(normChunk.length).trim();
+        updatedPreview = remaining ? updatedPreview.slice(-remaining.length) : '';
+      } else if (normChunk.startsWith(normPreview)) {
+        updatedPreview = '';
+      }
+    }
+
     this.state = {
       ...this.state,
       chunks: newChunks,
       transcript: newTranscript,
       provisionalText: '', // Clear provisional text once segment finalized
+      livePreviewText: updatedPreview,
       wordCount,
       chunkCount: newChunks.length,
     };
@@ -172,6 +205,9 @@ class StateStore {
       transcript: '',
       chunks: [],
       provisionalText: '',
+      livePreviewText: '',
+      isTranscribing: false,
+      pendingCount: 0,
       wordCount: 0,
       chunkCount: 0,
       hasRecording: false,

@@ -89,9 +89,25 @@ export class AudioWebSocket {
       case 'vad':
         store.setSpeaking(msg.speaking);
         if (msg.speaking) {
-          store.setProvisionalText('Listening and transcribing speech...');
+          const current = store.getState();
+          if (!current.provisionalText || current.provisionalText.startsWith('Listening')) {
+            store.setProvisionalText('Listening and transcribing speech...');
+          }
         }
         if (this.callbacks.onVad) this.callbacks.onVad(msg.speaking);
+        break;
+
+      case 'status':
+        store.setTranscribingStatus(msg.transcribing, msg.pending);
+        if (msg.transcribing) {
+          if (msg.pending > 0) {
+            store.setProvisionalText(`Transcribing speech (${msg.pending} queued)...`);
+          } else {
+            store.setProvisionalText('Transcribing speech...');
+          }
+        } else if (store.getState().status === 'recording' && msg.pending === 0) {
+          store.setProvisionalText('Transcript up to date');
+        }
         break;
 
       case 'transcript':
@@ -101,12 +117,14 @@ export class AudioWebSocket {
 
       case 'done':
         store.setSpeaking(false);
+        store.setTranscribingStatus(false, 0);
         store.setProvisionalText('');
         if (this.callbacks.onDone) this.callbacks.onDone();
         break;
 
       case 'error':
         store.setError(msg.message);
+        store.setTranscribingStatus(false, 0);
         if (this.callbacks.onError) this.callbacks.onError(msg.message);
         break;
     }

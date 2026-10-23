@@ -109,15 +109,19 @@ class WhisperTranscriber:
         self.device = os.getenv("WHISPER_DEVICE", device)
         self.compute_type = os.getenv("WHISPER_COMPUTE_TYPE", compute_type)
         self.beam_size = int(os.getenv("WHISPER_BEAM_SIZE", str(beam_size)))
+        self.cpu_threads = int(os.getenv("WHISPER_CPU_THREADS", "1"))
         self.initial_prompt = MEDICAL_INITIAL_PROMPT
 
         logger.info(
-            f"Loading Faster-Whisper model '{self.model_size}' on {self.device} ({self.compute_type}) with beam_size={self.beam_size}..."
+            f"Loading Faster-Whisper model '{self.model_size}' on {self.device} ({self.compute_type}) "
+            f"with beam_size={self.beam_size}, cpu_threads={self.cpu_threads}..."
         )
         self.model = WhisperModel(
             model_size_or_path=self.model_size,
             device=self.device,
             compute_type=self.compute_type,
+            cpu_threads=self.cpu_threads,
+            num_workers=1,
         )
         logger.info("Faster-Whisper model loaded successfully.")
 
@@ -184,6 +188,52 @@ class WhisperTranscriber:
         full_text = " ".join(valid_texts).strip()
         duration = float(info.duration) if info else 0.0
         return full_text, duration
+
+    def _sync_transcribe_segments_detailed(
+        self, audio_data: np.ndarray, last_text: Optional[str] = None
+    ) -> list[dict]:
+        """Synchronous transcription returning segment text with start and end timestamps."""
+        if audio_data.size == 0:
+            return []
+
+        segments, _info = self.model.transcribe(
+            audio_data,
+            beam_size=self.beam_size,
+            language="en",
+            vad_filter=False,
+            condition_on_previous_text=False,
+            initial_prompt=self.initial_prompt,
+        )
+
+        results = []
+        for segment in segments:
+            text = segment.text.strip()
+            no_speech = getattr(segment, "no_speech_prob", 0.0)
+            avg_logprob = getattr(segment, "avg_logprob", 0.0)
+
+            if is_hallucinated_text(text, no_speech_prob=no_speech, avg_logprob=avg_logprob, last_text=last_text):
+                continue
+
+            results.append({
+                "text": text,
+                "start": float(segment.start),
+                "end": float(segment.end),
+            })
+            last_text = text
+
+        return results
+
+    async def transcribe_batch(
+        self, combined_audio: np.ndarray, last_text: Optional[str] = None
+    ) -> list[dict]:
+        """Asynchronously transcribe combined audio batch on the dedicated thread pool."""
+        if combined_audio.size == 0:
+            return []
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            self._executor, self._sync_transcribe_segments_detailed, combined_audio, last_text
+        )
 
     async def transcribe_segment(
         self, pcm_bytes: bytes, last_text: Optional[str] = None

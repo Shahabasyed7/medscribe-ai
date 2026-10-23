@@ -14,10 +14,12 @@ import json
 import logging
 import os
 from pathlib import Path
+import time
 from typing import Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
+import numpy as np
 from pydantic import BaseModel, Field
 
 # Load environment variables from backend/.env if present
@@ -253,41 +255,182 @@ async def websocket_audio_endpoint(websocket: WebSocket):
         on_speaking_change=on_speaking_change,
     )
 
-    # Worker task to process speech segments sequentially and maintain transcript order
+    # Worker task to process speech segments with dynamic batching of queued segments
     async def transcription_worker():
         nonlocal chunk_counter
         last_transcribed_text = None
+        silence_gap = np.zeros(4800, dtype=np.float32)  # 300 ms of 16kHz silence
+
         while True:
-            seg_bytes = await segment_queue.get()
-            if seg_bytes is None:
-                # Sentinel to indicate end of queue
+            first_seg = await segment_queue.get()
+            if first_seg is None:
                 segment_queue.task_done()
                 break
 
+            # Collect any segments already queued without waiting, up to max ~28.0 seconds total audio
+            batch_bytes: list[bytes] = [first_seg]
+            first_audio = transcriber.pcm16_to_float32(first_seg)
+            audio_arrays: list[np.ndarray] = [first_audio]
+            durations: list[float] = [len(first_audio) / 16000.0]
+            total_audio_sec = durations[0]
+
+            while not segment_queue.empty():
+                try:
+                    next_item = segment_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+
+                if next_item is None:
+                    # Put sentinel back to terminate after this batch
+                    await segment_queue.put(None)
+                    break
+
+                next_audio = transcriber.pcm16_to_float32(next_item)
+                next_dur = len(next_audio) / 16000.0
+                if total_audio_sec + 0.3 + next_dur > 28.0:
+                    # Exceeds max batch window; put back in front or process in next turn
+                    # Because asyncio.Queue doesn't have unget, put it back into queue
+                    await segment_queue.put(next_item)
+                    segment_queue.task_done()
+                    break
+
+                batch_bytes.append(next_item)
+                audio_arrays.append(next_audio)
+                durations.append(next_dur)
+                total_audio_sec += 0.3 + next_dur
+                segment_queue.task_done()
+
+            # Announce status: transcribing with current remaining queue depth
+            current_queue_depth = segment_queue.qsize()
+            await _safe_send_json(
+                websocket,
+                {
+                    "type": "status",
+                    "transcribing": True,
+                    "pending": current_queue_depth,
+                },
+            )
+
+            start_t = time.perf_counter()
             try:
-                text, duration = await transcriber.transcribe_segment(
-                    seg_bytes, last_text=last_transcribed_text
+                # Concatenate with 300ms silence gap between merged segments
+                if len(audio_arrays) == 1:
+                    combined_audio = audio_arrays[0]
+                else:
+                    parts = []
+                    for i, arr in enumerate(audio_arrays):
+                        if i > 0:
+                            parts.append(silence_gap)
+                        parts.append(arr)
+                    combined_audio = np.concatenate(parts)
+
+                # Compute time boundaries for each original segment in the combined audio
+                segment_bounds = []
+                cur_offset = 0.0
+                for dur in durations:
+                    segment_bounds.append((cur_offset, cur_offset + dur))
+                    cur_offset += dur + 0.3  # account for 300ms silence
+
+                # Transcribe combined audio returning detailed segments with timestamps
+                whisper_segs = await transcriber.transcribe_batch(
+                    combined_audio, last_text=last_transcribed_text
                 )
-                if text:
-                    last_transcribed_text = text
-                    chunk_counter += 1
-                    full_transcript_parts.append(text)
-                    await _safe_send_json(
-                        websocket,
-                        {
-                            "type": "transcript",
-                            "text": text,
-                            "chunk": chunk_counter,
-                        },
-                    )
+                elapsed_s = time.perf_counter() - start_t
+
+                # Log performance without logging transcript text
+                logger.info(
+                    f"ASR Batch complete: merged={len(batch_bytes)} segments, "
+                    f"audio={total_audio_sec:.2f}s, took={elapsed_s:.2f}s, "
+                    f"queue_depth={current_queue_depth}"
+                )
+
+                if whisper_segs:
+                    # Map transcribed segments back to original segments if cleanly fit
+                    assigned_chunks = [[] for _ in range(len(segment_bounds))]
+                    unassigned_texts = []
+
+                    for wseg in whisper_segs:
+                        w_mid = (wseg["start"] + wseg["end"]) / 2.0
+                        matched_idx = None
+                        for s_idx, (s_start, s_end) in enumerate(segment_bounds):
+                            # Allow 0.4s tolerance for boundary bleed
+                            if (s_start - 0.4) <= w_mid <= (s_end + 0.4):
+                                matched_idx = s_idx
+                                break
+
+                        if matched_idx is not None:
+                            assigned_chunks[matched_idx].append(wseg["text"])
+                        else:
+                            unassigned_texts.append(wseg["text"])
+
+                    # Emit chunks per segment or fallback to batch chunk
+                    sent_any = False
+                    for s_idx, texts in enumerate(assigned_chunks):
+                        if texts:
+                            seg_text = " ".join(texts).strip()
+                            if seg_text:
+                                chunk_counter += 1
+                                last_transcribed_text = seg_text
+                                full_transcript_parts.append(seg_text)
+                                sent_any = True
+                                await _safe_send_json(
+                                    websocket,
+                                    {
+                                        "type": "transcript",
+                                        "text": seg_text,
+                                        "chunk": chunk_counter,
+                                    },
+                                )
+
+                    if unassigned_texts:
+                        leftover = " ".join(unassigned_texts).strip()
+                        if leftover:
+                            chunk_counter += 1
+                            last_transcribed_text = leftover
+                            full_transcript_parts.append(leftover)
+                            sent_any = True
+                            await _safe_send_json(
+                                websocket,
+                                {
+                                    "type": "transcript",
+                                    "text": leftover,
+                                    "chunk": chunk_counter,
+                                },
+                            )
+
+                    if not sent_any:
+                        # Fallback: join all whisper segment texts into single chunk
+                        fallback_text = " ".join(w["text"] for w in whisper_segs).strip()
+                        if fallback_text:
+                            chunk_counter += 1
+                            last_transcribed_text = fallback_text
+                            full_transcript_parts.append(fallback_text)
+                            await _safe_send_json(
+                                websocket,
+                                {
+                                    "type": "transcript",
+                                    "text": fallback_text,
+                                    "chunk": chunk_counter,
+                                },
+                            )
+
             except Exception as e:
-                logger.error(f"Error during segment transcription: {e}")
+                logger.error(f"Error during batch transcription: {e}", exc_info=True)
                 await _safe_send_json(
                     websocket,
                     {"type": "error", "message": "Transcription error encountered."},
                 )
             finally:
                 segment_queue.task_done()
+                # Update status after finishing batch
+                await _safe_send_json(
+                    websocket,
+                    {
+                        "type": "status",
+                        "transcribing": False,
+                        "pending": segment_queue.qsize(),
+                    },
+                )
 
     worker_task = asyncio.create_task(transcription_worker())
 
@@ -305,6 +448,14 @@ async def websocket_audio_endpoint(websocket: WebSocket):
                 completed_segments = segmenter.process_chunk(audio_chunk)
                 for seg in completed_segments:
                     await segment_queue.put(seg)
+                    await _safe_send_json(
+                        websocket,
+                        {
+                            "type": "status",
+                            "transcribing": True,
+                            "pending": segment_queue.qsize(),
+                        },
+                    )
 
             # Handle text commands (e.g. "stop")
             elif "text" in message and message["text"]:
@@ -314,6 +465,15 @@ async def websocket_audio_endpoint(websocket: WebSocket):
                     flushed_segments = segmenter.flush()
                     for seg in flushed_segments:
                         await segment_queue.put(seg)
+
+                    await _safe_send_json(
+                        websocket,
+                        {
+                            "type": "status",
+                            "transcribing": True,
+                            "pending": segment_queue.qsize(),
+                        },
+                    )
 
                     # Send sentinel to wait for all queued segments to finish
                     await segment_queue.put(None)

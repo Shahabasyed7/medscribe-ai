@@ -19,5 +19,7 @@ services:
         value: cpu
       - key: WHISPER_COMPUTE_TYPE
         value: int8
+      - key: WHISPER_CPU_THREADS
+        value: "1"
       - key: ALLOWED_ORIGIN_REGEX
         value: "https://.*\\.vercel\\.app"

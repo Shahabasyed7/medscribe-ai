@@ -15,7 +15,94 @@ let audioManager: AudioManager;
 let socketManager: AudioWebSocket;
 let stopTimeoutId: number | null = null;
 
+// Browser Web Speech API live preview manager
+interface IWindowSpeech extends Window {
+  SpeechRecognition?: any;
+  webkitSpeechRecognition?: any;
+}
+
+let browserSpeechRecognizer: any = null;
+let isRecordingActive = false;
+
+function initBrowserSpeechPreview(): void {
+  const win = window as unknown as IWindowSpeech;
+  const SpeechRec = win.SpeechRecognition || win.webkitSpeechRecognition;
+  if (!SpeechRec) {
+    console.info('Live preview: SpeechRecognition API not supported in this browser.');
+    return;
+  }
+
+  try {
+    browserSpeechRecognizer = new SpeechRec();
+    browserSpeechRecognizer.continuous = true;
+    browserSpeechRecognizer.interimResults = true;
+    browserSpeechRecognizer.lang = 'en-US';
+
+    browserSpeechRecognizer.onresult = (event: any) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const transcriptPart = event.results[i][0].transcript;
+        interim += transcriptPart;
+      }
+      const trimmed = interim.trim();
+      if (trimmed) {
+        store.setLivePreviewText(trimmed);
+      }
+    };
+
+    browserSpeechRecognizer.onerror = (event: any) => {
+      // Safe error handling: ignore harmless 'no-speech' or 'aborted'
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        console.warn('Browser speech recognition notice:', event.error);
+      }
+    };
+
+    browserSpeechRecognizer.onend = () => {
+      // Auto-restart while recording is still active
+      if (isRecordingActive) {
+        try {
+          browserSpeechRecognizer.start();
+        } catch {
+          // May throw if already active
+        }
+      } else {
+        store.setLivePreviewText('');
+      }
+    };
+  } catch (err) {
+    console.warn('Failed to initialize browser speech recognizer:', err);
+    browserSpeechRecognizer = null;
+  }
+}
+
+function startBrowserSpeechPreview(): void {
+  isRecordingActive = true;
+  if (browserSpeechRecognizer) {
+    try {
+      browserSpeechRecognizer.start();
+    } catch {
+      // Ignore if already started
+    }
+  } else {
+    // If unsupported, inform once
+    console.info('Live preview unavailable: SpeechRecognition not active');
+  }
+}
+
+function stopBrowserSpeechPreview(): void {
+  isRecordingActive = false;
+  if (browserSpeechRecognizer) {
+    try {
+      browserSpeechRecognizer.stop();
+    } catch {
+      // Ignore
+    }
+  }
+  store.setLivePreviewText('');
+}
+
 function finishRecordingSession(): void {
+  stopBrowserSpeechPreview();
   if (stopTimeoutId !== null) {
     window.clearTimeout(stopTimeoutId);
     stopTimeoutId = null;
@@ -53,6 +140,7 @@ function initApp(): void {
   });
 
   attachEventListeners();
+  initBrowserSpeechPreview();
 
   // Background health check
   ApiService.checkHealth()
@@ -106,11 +194,13 @@ function attachEventListeners(): void {
       await socketManager.connect();
       // Start microphone recording
       await audioManager.start();
+      startBrowserSpeechPreview();
       store.setStatus('recording');
       showToast('Microphone recording started');
     } catch (err: any) {
       console.error('Error starting recording:', err);
       store.setError(err.message || 'Failed to start microphone recording.');
+      stopBrowserSpeechPreview();
       audioManager.stop();
       socketManager.close();
       store.setStatus('error');
@@ -122,6 +212,7 @@ function attachEventListeners(): void {
     if (store.getState().status !== 'recording') return;
 
     // Immediately stop microphone capture so no new audio is recorded
+    stopBrowserSpeechPreview();
     audioManager.stop();
 
     if (socketManager && socketManager.isOpen()) {

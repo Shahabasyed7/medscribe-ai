@@ -252,3 +252,90 @@ test('WebSocket error or timeout cleanly resets stuck finalizing state to idle',
   assert.equal(stopTimeoutId, null);
 });
 
+// 9. Observable Status Reporting Tests
+test('Server status message updates transcribing state and pending count cleanly', () => {
+  let state = {
+    status: 'recording',
+    isTranscribing: false,
+    pendingCount: 0,
+    provisionalText: '',
+  };
+
+  function handleStatusMessage(msg) {
+    state.isTranscribing = msg.transcribing;
+    state.pendingCount = msg.pending;
+    if (msg.transcribing) {
+      if (msg.pending > 0) {
+        state.provisionalText = `Transcribing speech (${msg.pending} queued)...`;
+      } else {
+        state.provisionalText = 'Transcribing speech...';
+      }
+    } else if (state.status === 'recording' && msg.pending === 0) {
+      state.provisionalText = 'Transcript up to date';
+    }
+  }
+
+  // 1. One batch processing, 2 more queued
+  handleStatusMessage({ type: 'status', transcribing: true, pending: 2 });
+  assert.equal(state.isTranscribing, true);
+  assert.equal(state.pendingCount, 2);
+  assert.equal(state.provisionalText, 'Transcribing speech (2 queued)...');
+
+  // 2. Queue drained down to 0 while batch finishing
+  handleStatusMessage({ type: 'status', transcribing: true, pending: 0 });
+  assert.equal(state.provisionalText, 'Transcribing speech...');
+
+  // 3. Batch complete, queue empty
+  handleStatusMessage({ type: 'status', transcribing: false, pending: 0 });
+  assert.equal(state.isTranscribing, false);
+  assert.equal(state.pendingCount, 0);
+  assert.equal(state.provisionalText, 'Transcript up to date');
+});
+
+// 10. Live Preview Separation & Deduplication Tests
+test('Live preview text is kept separate from state.transcript and deduplicated on chunk arrival', () => {
+  let state = {
+    livePreviewText: '',
+    chunks: [],
+    transcript: '',
+  };
+
+  function setLivePreviewText(text) {
+    state.livePreviewText = text;
+  }
+
+  function addTranscriptChunk(chunkData) {
+    const cleanText = chunkData.text.trim();
+    if (!cleanText) return;
+
+    state.chunks.push({ chunk: chunkData.chunk, text: cleanText, speaker: chunkData.speaker || 'Doctor' });
+    state.transcript = state.chunks.map(c => `${c.speaker}: ${c.text}`).join('\n');
+
+    // Deduplicate preview
+    let updatedPreview = state.livePreviewText;
+    if (updatedPreview) {
+      const normChunk = cleanText.toLowerCase().replace(/[^\w\s]/g, '').trim();
+      const normPreview = updatedPreview.toLowerCase().replace(/[^\w\s]/g, '').trim();
+
+      if (normPreview === normChunk || normPreview.startsWith(normChunk)) {
+        const remaining = normPreview.slice(normChunk.length).trim();
+        updatedPreview = remaining ? updatedPreview.slice(-remaining.length) : '';
+      } else if (normChunk.startsWith(normPreview)) {
+        updatedPreview = '';
+      }
+    }
+    state.livePreviewText = updatedPreview;
+  }
+
+  // User speaks: browser speech recognition delivers interim preview
+  setLivePreviewText('Patient reports persistent headache and fever');
+  assert.equal(state.livePreviewText, 'Patient reports persistent headache and fever');
+  // Critical invariant: transcript must remain empty until Whisper returns
+  assert.equal(state.transcript, '', 'Live preview must never contaminate state.transcript or Gemini input');
+
+  // Whisper completes transcription of that segment
+  addTranscriptChunk({ chunk: 1, text: 'Patient reports persistent headache and fever', speaker: 'Doctor' });
+  assert.equal(state.transcript, 'Doctor: Patient reports persistent headache and fever');
+  assert.equal(state.livePreviewText, '', 'Finalized Whisper text clears the matching interim preview');
+});
+

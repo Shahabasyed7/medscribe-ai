@@ -31,6 +31,7 @@ ENV PYTHONUNBUFFERED=1
 # Configurable Whisper model with base.en default for low-memory environments (Render Free tier)
 ARG WHISPER_MODEL=base.en
 ENV WHISPER_MODEL=${WHISPER_MODEL}
+ENV WHISPER_CPU_THREADS=1
 
 # Pre-download the configured faster-whisper model at Docker build time
 # This avoids download timeouts and keeps startup memory & time low

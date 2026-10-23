@@ -86,6 +86,9 @@ export interface AppState {
   isSpeaking: boolean;
   activeSpeaker: SpeakerRole;
   provisionalText: string;
+  livePreviewText: string;
+  isTranscribing: boolean;
+  pendingCount: number;
   transcript: string;
   chunks: TranscriptChunk[];
   wordCount: number;
@@ -107,6 +110,12 @@ export interface VadMessage {
   speaking: boolean;
 }
 
+export interface StatusMessage {
+  type: 'status';
+  transcribing: boolean;
+  pending: number;
+}
+
 export interface TranscriptMessage {
   type: 'transcript';
   text: string;
@@ -122,4 +131,4 @@ export interface ErrorMessage {
   message: string;
 }
 
-export type ServerMessage = VadMessage | TranscriptMessage | DoneMessage | ErrorMessage;
+export type ServerMessage = VadMessage | StatusMessage | TranscriptMessage | DoneMessage | ErrorMessage;

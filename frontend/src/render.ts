@@ -122,7 +122,7 @@ function renderTranscriptionCard(state: AppState): void {
   if (wordCountElem) wordCountElem.textContent = state.wordCount.toLocaleString();
   if (chunkCountElem) chunkCountElem.textContent = state.chunkCount.toLocaleString();
 
-  // 4. Transcript box & provisional live text
+  // 4. Transcript box, live preview & provisional status text
   const placeholder = document.getElementById('transcript-placeholder');
   const content = document.getElementById('transcript-content');
   const container = document.getElementById('transcript-container');
@@ -130,8 +130,9 @@ function renderTranscriptionCard(state: AppState): void {
   if (placeholder && content && container) {
     const hasFinalChunks = state.chunks.length > 0;
     const hasProvisional = Boolean(state.provisionalText && state.provisionalText.trim());
+    const hasLivePreview = Boolean(state.livePreviewText && state.livePreviewText.trim());
 
-    if (!hasFinalChunks && !hasProvisional) {
+    if (!hasFinalChunks && !hasProvisional && !hasLivePreview) {
       placeholder.style.display = 'flex';
       content.style.display = 'none';
       content.innerHTML = '';
@@ -152,7 +153,17 @@ function renderTranscriptionCard(state: AppState): void {
         )
         .join('');
 
-      // If provisional speech is being uttered, append dynamic provisional box
+      // Browser live preview ("Hearing: ...") in its own grey line
+      if (hasLivePreview && state.status === 'recording') {
+        html += `
+          <div class="transcript-live-hearing" style="padding: 0.4rem 0.6rem; margin: 0.35rem 0; font-size: 0.88rem; color: #64748b; font-style: italic; background: #f8fafc; border-left: 3px solid #94a3b8; border-radius: 4px; display: flex; align-items: baseline; gap: 0.4rem;">
+            <span style="font-weight: 600; font-style: normal; color: #475569; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em;">Hearing:</span>
+            <span>${escapeHtml(state.livePreviewText)}</span>
+          </div>
+        `;
+      }
+
+      // If provisional speech status is active, append status indicator
       if (hasProvisional) {
         html += `
           <div class="transcript-chunk-provisional">

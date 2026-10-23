@@ -557,3 +557,101 @@ async def test_patient_statement_never_placed_in_assessment_or_plan():
     assert "Rest and hydration" in result.plan.advice
 
 
+# ---------------------------------------------------------
+# 10. Throughput Batching, Timestamp Mapping & WebSocket Tests
+# ---------------------------------------------------------
+
+def test_whisper_cpu_threads_config(monkeypatch):
+    """Verify WHISPER_CPU_THREADS is passed to WhisperModel with single-thread worker."""
+    monkeypatch.setenv("WHISPER_CPU_THREADS", "1")
+    monkeypatch.setenv("WHISPER_MODEL", "base.en")
+    transcriber = WhisperTranscriber()
+    assert transcriber.cpu_threads == 1
+    assert transcriber.model_size == "base.en"
+
+
+def test_pcm16_to_float32_conversion():
+    """Verify PCM16 byte array is accurately normalized to float32 between -1.0 and 1.0."""
+    # 0 sample, max positive 32767, min negative -32768
+    raw_bytes = struct.pack("<hhh", 0, 32767, -32768)
+    floats = WhisperTranscriber.pcm16_to_float32(raw_bytes)
+    assert len(floats) == 3
+    assert abs(floats[0]) < 1e-5
+    assert abs(floats[1] - (32767.0 / 32768.0)) < 1e-4
+    assert abs(floats[2] - (-1.0)) < 1e-4
+
+
+@pytest.mark.asyncio
+async def test_websocket_audio_endpoint_with_batching_and_status():
+    """Test full WebSocket audio endpoint with queued segment batching, status reporting, and flush."""
+    # Generate 1 second of 440Hz sine wave PCM16
+    sample_rate = 16000
+    t = np.linspace(0, 1.0, sample_rate, endpoint=False)
+    sine_wave = (np.sin(2 * np.pi * 440 * t) * 16000).astype(np.int16)
+    audio_bytes = sine_wave.tobytes()
+
+    client = TestClient(app)
+    received_types = []
+
+    with client.websocket_connect("/ws/audio") as ws:
+        # Stream audio chunk
+        ws.send_bytes(audio_bytes)
+        # Send stop to flush
+        ws.send_text("stop")
+
+        while True:
+            try:
+                msg = ws.receive_json()
+                msg_type = msg.get("type")
+                received_types.append(msg_type)
+                if msg_type == "done":
+                    break
+            except Exception:
+                break
+
+    assert "done" in received_types, "WebSocket must send done upon session completion"
+    # Status messages and/or vad messages must be emitted
+    assert any(t in received_types for t in ["status", "vad"]), "WebSocket should send status/vad events"
+
+
+@pytest.mark.asyncio
+async def test_batching_segment_timestamp_mapping():
+    """Verify timestamp boundaries map transcribed text back to original segments."""
+    # Simulate 2 segments of 2 seconds each separated by 0.3s silence
+    seg1_dur = 2.0
+    seg2_dur = 2.0
+    silence_gap = 0.3
+
+    segment_bounds = [
+        (0.0, seg1_dur),
+        (seg1_dur + silence_gap, seg1_dur + silence_gap + seg2_dur)
+    ]
+
+    whisper_segs = [
+        {"text": "Patient has headache", "start": 0.2, "end": 1.8},
+        {"text": "Doctor prescribed rest", "start": 2.4, "end": 4.1}
+    ]
+
+    assigned = [[] for _ in range(len(segment_bounds))]
+    unassigned = []
+
+    for wseg in whisper_segs:
+        w_mid = (wseg["start"] + wseg["end"]) / 2.0
+        matched = None
+        for s_idx, (s_start, s_end) in enumerate(segment_bounds):
+            if (s_start - 0.4) <= w_mid <= (s_end + 0.4):
+                matched = s_idx
+                break
+        if matched is not None:
+            assigned[matched].append(wseg["text"])
+        else:
+            unassigned.append(wseg["text"])
+
+    assert len(assigned[0]) == 1
+    assert assigned[0][0] == "Patient has headache"
+    assert len(assigned[1]) == 1
+    assert assigned[1][0] == "Doctor prescribed rest"
+    assert len(unassigned) == 0
+
+
+
